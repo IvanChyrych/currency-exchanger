@@ -13,9 +13,9 @@ const Basket = observer(() => {
 
     useEffect(() => {
         getBasket().then(data => device.setBaskets(data))
+        console.log(device);
+        
     }, [])
-
-
 
     // ----- Считаем общую сумму, которую юзер набрал в корзину ------- //
 

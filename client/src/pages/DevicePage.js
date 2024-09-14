@@ -4,18 +4,28 @@ import { Button, Card, Col, Container, Image, Row } from "react-bootstrap";
 import { useParams } from 'react-router-dom';
 import { addToBasket, fetchOneDevice } from "../http/deviceAPI";
 
+
+
 const DevicePage = () => {
     const [device, setDevice] = useState({ info: [] })
     const { id } = useParams()
+    let input = document.querySelector('input');
+
     useEffect(() => {
         fetchOneDevice(id).then(data => setDevice(data))
     }, [])
 
     // ------- Создаём функцию для записи ------- //
     const add = () => {
+        
+        
         const formData = new FormData()
         formData.append('deviceId', id)
+        formData.append('amount', input)
         addToBasket(formData).then(response => alert(`Товар ` + device.name + ` был добавлен в вашу корзину!`))
+
+        console.log(formData);
+        console.log(input);
     }
 
     return (
@@ -39,6 +49,9 @@ const DevicePage = () => {
                     >
                         <h3>От: {device.price} руб.</h3>
 
+                        <h3>укажите количество:</h3>
+                        <input type="text"></input>
+
                         {/* Запускаем функцию */}
                         <Button variant={"outline-dark"} onClick={add} >Добавить в корзину</Button>
 
@@ -56,4 +69,7 @@ const DevicePage = () => {
         </Container>
     );
 };
+
+
+
 export default DevicePage;
