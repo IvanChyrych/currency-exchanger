@@ -40,13 +40,10 @@ export const fetchOneDevice = async (id) => {
 
 // ------ Добавляю подключение для добавление crud с корзиной ------- //
 
-export const addToBasket = async (deviceId, amount) => {
-    const {response} = await $authHost.post('api/basket', deviceId, amount)
-    console.log(amount);
-    
-    return response
-    
-}
+export const addToBasket = async (formData) => {
+    const response = await $authHost.post('api/basket', formData); // Отправляем данные в виде FormData
+    return response.data;
+};
 
 export const getBasket = async () => {
     const {data} = await $authHost.get('api/basket')

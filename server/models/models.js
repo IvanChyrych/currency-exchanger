@@ -13,9 +13,18 @@ const Basket = sequelize.define('basket', {
 
 })
 
-const BasketDevice = sequelize.define('basket_device', {
+// const BasketDevice = sequelize.define('basket_device', {
+//     id: { type: DataTypes.INTEGER, primaryKey: true, autoIncrement: true },
+// })
+
+const BasketDevice = sequelize.define('basket_devices', {
     id: { type: DataTypes.INTEGER, primaryKey: true, autoIncrement: true },
-})
+    basket_id: { type: DataTypes.INTEGER, allowNull: false },
+    device_id: { type: DataTypes.INTEGER, allowNull: false },
+    amount: { type: DataTypes.INTEGER, allowNull: false }, // Поле для количества
+    currency: { type: DataTypes.INTEGER, allowNull: false } // Поле для id валюты
+});
+
 
 const Device = sequelize.define('device', {
     id: { type: DataTypes.INTEGER, primaryKey: true, autoIncrement: true },
@@ -69,6 +78,9 @@ BasketDevice.belongsTo(Device)
 
 Device.hasMany(DeviceInfo, { as: 'info' });
 DeviceInfo.belongsTo(Device)
+
+
+//BasketDevice.belongsTo(Currency, { foreignKey: 'currency' });
 
 Type.belongsToMany(Brand, { through: TypeBrand })
 Brand.belongsToMany(Type, { through: TypeBrand })
