@@ -26,28 +26,29 @@ module.exports = function (app, requireLogin, pool, baseHTML) {
                         <td>
                             <form action="/user/exchange" method="POST">
                                 <input type="hidden" name="currency_id" value="${currency.id}">
-                                <input type="number" name="amount" min="1" placeholder="Amount" required>
-                                <button type="submit" class="exchange-button">Preview Exchange</button>
+                                <input type="number" name="amount" min="1" placeholder="Сумма" required>
+                                <button type="submit" class="exchange-button">Обмен</button>
                             </form>
                         </td>
                     </tr>`;
             });
 
             const content = `
-                <h1>Available Currencies for Exchange</h1>
+                <h1>Доступные валюты для обмена:</h1>
                 <table>
                     <tr>
-                        <th>From Currency</th>
-                        <th>To Currency</th>
-                        <th>Rate</th>
+                        <th>Из</th>
+                        <th>В</th>
+                        <th>Курс</th>
+                        <th>Обмен</th>
                     </tr>
                     ${currencyTable}
                 </table>
                 <br>
-                <a href="/user/session-history" class="history-button">View Session Exchange History</a>
+                <a href="/user/session-history" class="history-button">История операций за сессию</a>
             `;
 
-            res.send(baseHTML('Currency Exchange', content));
+            res.send(baseHTML('Обмен валют', content));
         } catch (error) {
             console.error('Error fetching currencies:', error);
             res.status(500).send('Failed to load currencies.');
@@ -78,9 +79,13 @@ module.exports = function (app, requireLogin, pool, baseHTML) {
             ]);
 
             // Сохраняем действие в сессии
-            saveActionInSession(req, `Exchanged ${amount} from ${currency[0].currency_from} to ${currency[0].currency_to} at rate ${exchangeRate}`);
+            saveActionInSession(req, `
+            Обменяно ${amount} из ${currency[0].currency_from} в ${currency[0].currency_to} по курсу ${exchangeRate}`);
 
-            res.send('Exchange successful and recorded in history!');
+            res.send(`Обмен произведен и сохранен в историю! 
+            <br>
+            <button onclick="location.href='/user/exchange'">Вернуться на страницу обмена валют</button>
+            `);
         } catch (error) {
             console.error('Error processing exchange:', error);
             res.status(500).send('Failed to process exchange.');
@@ -91,7 +96,7 @@ module.exports = function (app, requireLogin, pool, baseHTML) {
     app.get('/user/session-history', requireLogin, function (req, res) {
         const actions = req.session.actions || []; // Если действий нет, используем пустой массив
 
-        let actionList = '<h1>Session Exchange History</h1><ul>';
+        let actionList = '<h1>История операций за сессию</h1><ul>';
         actions.forEach(action => {
             actionList += `<li>${action.action} - ${action.timestamp.toLocaleString()}</li>`;
         });
@@ -100,7 +105,7 @@ module.exports = function (app, requireLogin, pool, baseHTML) {
         const content = `
             ${actionList}
             <br>
-            <a href="/user/exchange" class="back-button">Back to Exchange</a>
+            <a href="/user/exchange" class="back-button">Вернуться к странице обмена валют</a>
         `;
         res.send(baseHTML('Session Exchange History', content));
     });

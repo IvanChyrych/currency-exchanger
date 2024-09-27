@@ -1,15 +1,11 @@
-
-
-
 const express = require('express');
 const mysql2 = require('mysql2/promise');
 const session = require('express-session');
 
-const confirmExchangePage = require('./pages/confirmExchangePage')
+// const confirmExchangePage = require('./pages/confirmExchangePage')
 const currencyPage = require('./pages/currencyPage')
 const exchangeHistoryPage = require('./pages/exchangeHistoryPage')
 const exchangePage = require('./pages/exchangePage')
-const previewExchangePage = require('./pages/previewExchangePage')
 
 const FileStore = require('session-file-store')(session);
 
@@ -174,11 +170,11 @@ app.get('/login', function (req, res) {
         </head>
         <body>
             <div class="main">
-                <h3>Enter your login credentials</h3>
+                <h3>Введите свой логин</h3>
                 <p style="color: red">${errorMessage}</p>
                 <form action="/login" method="POST">
                     <label for="first">
-                        email:
+                        Электронная почта:
                     </label>
                     <input type="text" 
                         id="first"
@@ -186,7 +182,7 @@ app.get('/login', function (req, res) {
                         placeholder="Enter your email" required>
 
                     <label for="password">
-                        Password:
+                        Пароль:
                     </label>
                     <input type="password"
                         id="password" 
@@ -195,14 +191,14 @@ app.get('/login', function (req, res) {
 
                     <div class="wrap">
                         <button type="submit">
-                            Submit
+                            Войти
                         </button>
                     </div>
                 </form>
-                <p>Not registered? 
+                <p>Нет аккаунта? 
                     <a href="/register" 
                     style="text-decoration: none;">
-                        Create an account
+                        Создать аккаунт
                     </a>
                 </p>
             </div>
@@ -308,11 +304,11 @@ app.listen(3000, function () {
     console.log('server started!');
 });
 
-confirmExchangePage(app, pool, requireLogin)
+// confirmExchangePage(app, pool, requireLogin)
 currencyPage(app, pool, requireAdmin, baseHTML)
 exchangeHistoryPage(app, pool, requireAdmin, baseHTML)
 exchangePage(app, requireLogin, pool, baseHTML)
-previewExchangePage(app, requireLogin, baseHTML, pool)
+
 
 
 
