@@ -67,12 +67,14 @@ module.exports = function (app, requireLogin, pool, baseHTML) {
             }
 
             const exchangeRate = currency[0].rate;
+            const sum = exchangeRate*amount;
 
             // Записываем обмен в таблицу истории
             const currentDate = new Date();
-            await pool.query('INSERT INTO history (date, rate, amount, currency, user) VALUES (?, ?, ?, ?, ?)', [
+            await pool.query('INSERT INTO history (date, rate, sum, amount, currency, user) VALUES (?, ?, ?, ?, ?, ?)', [
                 currentDate,
                 exchangeRate,
+                sum,
                 amount,
                 currency_id,
                 req.session.userId
@@ -80,7 +82,11 @@ module.exports = function (app, requireLogin, pool, baseHTML) {
 
             // Сохраняем действие в сессии
             saveActionInSession(req, `
-            Обменяно ${amount} из ${currency[0].currency_from} в ${currency[0].currency_to} по курсу ${exchangeRate}`);
+            Обменяно ${amount} из ${currency[0].currency_from} в ${currency[0].currency_to} по курсу ${exchangeRate}
+            <br>
+            Получено: ${sum}
+            `);
+            
 
             res.send(`Обмен произведен и сохранен в историю! 
             <br>

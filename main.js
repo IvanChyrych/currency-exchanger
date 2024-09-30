@@ -109,7 +109,7 @@ const baseHTML = (title, content) => `
 const pool = mysql2.createPool({
     host: 'localhost',
     user: 'root',
-    database: 'tickets',
+    database: 'exchanger',
     password: '',
 });
 
