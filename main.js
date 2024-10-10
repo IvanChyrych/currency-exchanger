@@ -1,11 +1,13 @@
 const express = require('express');
 const mysql2 = require('mysql2/promise');
 const session = require('express-session');
+const bcrypt = require('bcrypt');
 
-// const confirmExchangePage = require('./pages/confirmExchangePage')
-const currencyPage = require('./pages/currencyPage')
-const exchangeHistoryPage = require('./pages/exchangeHistoryPage')
-const exchangePage = require('./pages/exchangePage')
+
+const adminPage = require('./pages/adminPage')
+const adminHistoryPage = require('./pages/adminHistoryPage')
+const userPage = require('./pages/userPage');
+const userSessionPage = require('./pages/userSessionPage');
 
 const FileStore = require('session-file-store')(session);
 
@@ -16,6 +18,7 @@ const baseHTML = (title, content) => `
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
         <title>${title}</title>
+        
         <style>
             body {
                 font-family: Arial, sans-serif;
@@ -23,7 +26,17 @@ const baseHTML = (title, content) => `
                 margin: 0;
                 padding: 0;
             }
+            .history-button{
+                margin-top: 10px;
+            }
+            .login_button{
+                text-align: right;
+                background-color: red;
+                justify-content: center;
+                color:white
+            }
             .container {
+               
                 width: 80%;
                 margin: 20px auto;
                 background: #fff;
@@ -100,6 +113,7 @@ const baseHTML = (title, content) => `
     </head>
     <body>
         <div class="container">
+        <button onclick="location.href='/login/'" class="login_button">Сменить пользователя</button>
             ${content}
         </div>
     </body>
@@ -161,8 +175,8 @@ async function requireAdmin(req, res, next) {
 }
 
 app.get('/login', function (req, res) {
-    const errorMessage = req.query.error ? "Invalid email or password" : "";
-    res.send(`<!DOCTYPE html>
+    const errorMessage = req.query.error ? "Неверный email или пароль" : "";
+    const content = `<!DOCTYPE html>
     <html>
         <head>
             <title>HTML Login Form</title>
@@ -190,7 +204,7 @@ app.get('/login', function (req, res) {
                         placeholder="Enter your Password" required>
 
                     <div class="wrap">
-                        <button type="submit">
+                        <button type="submit" class="history-button">
                             Войти
                         </button>
                     </div>
@@ -203,39 +217,63 @@ app.get('/login', function (req, res) {
                 </p>
             </div>
         </body>
-    </html>`);
+    </html>`
+    res.send(baseHTML('Введите логин', content));
 });
+
+
+
+
 
 app.post('/login', async function (req, res) {
     const { email, password } = req.body;
 
     try {
-        // Проверка наличия данных пользователя в базе данных
-        const [rows] = await pool.query('SELECT * FROM users WHERE email = ? AND password = ?', [email, password]);
+        // Поиск пользователя по email
+        const [rows] = await pool.query('SELECT * FROM users WHERE email = ?', [email]);
+
         if (rows.length > 0) {
-            const userId = rows[0].id;
-            const [admins] = await pool.query('SELECT * FROM roles WHERE user_id = ? AND role = ?', [userId, 'admin']);
-            req.session.userId = userId;
-            console.log(req.session);
-            console.log(req.session.userId);
-            if (admins.length > 0) {
-                res.redirect('/admin/currency');
+            // Сравнение введённого пароля с хэшированным
+            const user = rows[0];
+            const match = await bcrypt.compare(password, user.password);
+
+            if (match) {
+                const userId = user.id;
+                req.session.userId = userId;
+
+                // Проверка роли администратора
+                const [admins] = await pool.query('SELECT * FROM roles WHERE user_id = ? AND role = ?', [userId, 'admin']);
+
+                if (admins.length > 0) {
+                    res.redirect('/admin/currency');
+                } else {
+                    res.redirect('/user/exchange');
+                }
             } else {
-                res.redirect('/user/exchange');
+                // Неверный пароль
+                res.redirect('/login?error=true');
             }
         } else {
-            // Если логин или пароль неверны, перенаправляем обратно на страницу входа с сообщением об ошибке
+            // Пользователь не найден
             res.redirect('/login?error=true');
         }
+
     } catch (error) {
         console.error('Error during login:', error);
         res.status(500).send('Internal Server Error');
     }
 });
 
+
+
+
+
+
+
+
 app.get('/register', function (req, res) {
     const errorMessage = req.query.error ? "User already exists or invalid input" : "";
-    res.send(`<!DOCTYPE html>
+    const content = `<!DOCTYPE html>
     <html>
         <head>
             <title>HTML Registration Form</title>
@@ -243,7 +281,7 @@ app.get('/register', function (req, res) {
         </head>
         <body>
             <div class="main">
-                <h3>Create your account</h3>
+                <h3>Создать аккаунт</h3>
                 <p style="color: red">${errorMessage}</p>
                 <form action="/register" method="POST">
                     <label for="email">
@@ -255,7 +293,7 @@ app.get('/register', function (req, res) {
                         placeholder="Enter your email" required>
 
                     <label for="password">
-                        Password:
+                        Пароль:
                     </label>
                     <input type="password"
                         id="password" 
@@ -264,23 +302,31 @@ app.get('/register', function (req, res) {
 
                     <div class="wrap">
                         <button type="submit">
-                            Submit
+                            Подтвердить
                         </button>
                     </div>
                 </form>
-                <p>Already registered? 
+                <p>Уже зарегистрированы? 
                     <a href="/login" 
                     style="text-decoration: none;">
-                        Login here
+                        Введите логин
                     </a>
                 </p>
             </div>
         </body>
-    </html>`);
+    </html>`
+    res.send(baseHTML('Регистрация', content));
 });
 
+
+
+
 app.post('/register', async function (req, res) {
-    const { email, password, phone } = req.body;
+
+    const { email, password } = req.body;
+    const hashedPassword = await bcrypt.hash(password, 10);
+
+
 
     try {
         // Проверка наличия пользователя с таким же email в базе данных
@@ -290,7 +336,7 @@ app.post('/register', async function (req, res) {
         }
 
         // Создание нового пользователя в базе данных
-        await pool.query('INSERT INTO users (email, password) VALUES (?, ?)', [email, password]);
+        await pool.query('INSERT INTO users (email, password) VALUES (?, ?)', [email, hashedPassword]);
 
         // Перенаправление на страницу логина после успешной регистрации
         res.redirect('/login');
@@ -300,20 +346,24 @@ app.post('/register', async function (req, res) {
     }
 });
 
+
+
+
+
 app.listen(3000, function () {
     console.log('server started!');
 });
 
-// confirmExchangePage(app, pool, requireLogin)
-currencyPage(app, pool, requireAdmin, baseHTML)
-exchangeHistoryPage(app, pool, requireAdmin, baseHTML)
-exchangePage(app, requireLogin, pool, baseHTML)
+adminPage(app, pool, requireAdmin, baseHTML)
+userSessionPage(app, requireLogin, baseHTML)
+adminHistoryPage(app, pool, requireAdmin, baseHTML)
+userPage(app, requireLogin, pool, baseHTML)
 
 
 
 
 
-   
+
 
 
 
