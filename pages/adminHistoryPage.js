@@ -2,15 +2,14 @@ module.exports = function (app, pool, requireAdmin, baseHTML) {
     app.get('/admin/exchange-history', requireAdmin, async function (req, res) {
         try {
             const [history] = await pool.query(`
-            SELECT h.id, h.selling_currency, user, h.date, h.purchased_currency, h.toCurrencyName, h.fromCurrencyName 
+            SELECT  h.id,  user, h.date, h.inCurrencySum, h.amount, h.inCurrencyName, h.fromCurrencyName 
             FROM history h
             JOIN users ON user = users.id
         `);
             let historyTable = `
             <table>
                 <tr>
-                    <th>ID</th>
-                    
+                    <th>ID</th>           
                     <th>Продано</th>
                     <th>Куплено</th>
                     <th>Дата</th>
@@ -21,9 +20,8 @@ module.exports = function (app, pool, requireAdmin, baseHTML) {
                 historyTable += `
                 <tr>
                     <td>${entry.id}</td>
-                    
-                    <td>${entry.selling_currency} ${entry.fromCurrencyName}</td>
-                    <td>${entry.purchased_currency} ${entry.toCurrencyName}</td>
+                    <td>${entry.amount} ${entry.fromCurrencyName}</td>
+                    <td>${entry.inCurrencySum} ${entry.inCurrencyName}</td>
                     <td>${new Date(entry.date).toLocaleString()}</td>
                     <td>${entry.user} </td>
                 </tr>

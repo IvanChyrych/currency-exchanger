@@ -1,6 +1,7 @@
 const axios = require('axios');
 const uri = 'https://api.nbrb.by/';
 const ratesUrl = `${uri}ExRates/Rates?Periodicity=0`;
+const Joi = require('joi'); // Для валидации
 
 module.exports = function (app, pool, requireAdmin, baseHTML) {
     async function getMaxAmount(pool) {
@@ -8,7 +9,7 @@ module.exports = function (app, pool, requireAdmin, baseHTML) {
             const [rows] = await pool.query('SELECT max_amount FROM exchange_settings WHERE id = 1');
             if (rows.length > 0) {
                 return parseFloat(rows[0].max_amount);
-            } else { 
+            } else {
                 await pool.query('INSERT INTO exchange_settings (max_amount) VALUES (?)', [10000]);
                 return 10000;
             }
@@ -32,7 +33,8 @@ module.exports = function (app, pool, requireAdmin, baseHTML) {
         try {
             const apiRates = await fetchRates();
             const currentMax = await getMaxAmount(pool);
-            const [currencies] = await pool.query('SELECT * FROM currency_in');
+            const [currencies_in] = await pool.query('SELECT * FROM currency_in_byn');
+            const [currencies_from] = await pool.query('SELECT * FROM currency_from_byn');
 
             let apiRatesTable = '';
             apiRates.forEach(rate => {
@@ -44,38 +46,66 @@ module.exports = function (app, pool, requireAdmin, baseHTML) {
                 </tr>`;
             });
 
-            let currencyTable = '';
-            currencies.forEach(currency => {
-                currencyTable += `
+            let currencyTableIn = '';
+            currencies_in.forEach(currency => {
+                currencyTableIn += `
                 <tr>
-                    <td>${currency.currency_from}</td>
-                    <td>${currency.currency_to}</td>
+                    <td>${currency.currency_in}</td>
                     <td>${currency.rate}</td>
                 </tr>`;
             });
 
+            let currencyTableFrom = '';
+            currencies_from.forEach(currency => {
+                currencyTableFrom += `
+                <tr>
+                    <td>${currency.currency_from}</td>
+                    <td>${currency.rate}</td>
+                </tr>`;
+            });
 
             const content = `
+            <button onclick="location.href='/admin/exchange-history'" class="history-button">История операций</button>
+            <br>
             <h2>Доступное количество денег в обменнике: ${currentMax.toFixed(2)} BYN</h2>
             <h1>Админ панель</h1>
-                <form action="/admin/currency" method="POST">
-                <label for="currency_from">Покупаемая валюта (пример: USD):</label>
-                <input type="text" id="currency_from" name="currency_from" pattern="[A-Z]{3}" title="Введите 3 буквы верхнего регистра" required>
-                <label for="currency_to">Обмениваемая валюта (пример: RUB):</label>
-                <input type="text" id="currency_to" name="currency_to" pattern="[A-Z]{3}" title="Введите 3 буквы верхнего регистра" required>
-                <label for="rate">Курс:</label>
-                <input type="number" step="0.0001" id="rate" name="rate" required>
-                <button type="submit" class="history-button">Добавить валюту</button>
+            
+
+                <form action="/admin/currency/purchase" method="POST">
+                    <label for="currency_from">Покупка валюты относительно BYN:</label>
+                    <input type="text" id="currency_from" name="currency_from" pattern="[A-Z]{3}" title="Введите 3 буквы верхнего регистра" required>
+                    <label for="rate">Курс:</label>
+                    <input type="number" step="0.0001" id="rate" name="rate" required>
+                    <button type="submit" class="history-button">Добавить валюту</button>
                 </form>
+
+                <form action="/admin/currency/sale" method="POST">
+                    <label for="currency_to">Продажа валюты относительно BYN:</label>
+                    <input type="text" id="currency_to" name="currency_to" pattern="[A-Z]{3}" title="Введите 3 буквы верхнего регистра" required>
+                    <label for="rate">Курс:</label>
+                    <input type="number" step="0.0001" id="rate" name="rate" required>
+                    <button type="submit" class="history-button">Добавить валюту</button>
+                </form>
+
                 <h2>Валюты из базы данных</h2>
+                <h3>Покупка</h3>
                 <table>
                     <tr>
-                        <th>В</th>
-                        <th>Из</th>
+                        <th>Валюта</th>
                         <th>Курс</th>
                     </tr>
-                    ${currencyTable}
+                    ${currencyTableIn}
                 </table>
+                
+                <h3>Продажа</h3>
+                <table>
+                    <tr>
+                        <th>Валюта</th>
+                        <th>Курс</th>
+                    </tr>
+                    ${currencyTableFrom}
+                </table>
+
                 <h2>Актуальные курсы валют из NBRB</h2>
                 <table>
                     <tr>
@@ -85,37 +115,88 @@ module.exports = function (app, pool, requireAdmin, baseHTML) {
                     </tr>
                     ${apiRatesTable}
                 </table>
-                <button onclick="location.href='/admin/exchange-history'" class="history-button">История операций</button>
+                
             `;
             res.send(baseHTML('Админ панель', content));
         } catch (error) {
-            console.error('Error displaying currency management page:', error);
-            res.status(500).send('Internal Server Error');
+            console.error('Ошибка при отображении страницы управления валютами:', error);
+            res.status(500).send('Внутренняя ошибка сервера');
         }
     });
 
-    app.post('/admin/currency', requireAdmin, async function (req, res) {
-        const { currency_from, currency_to, rate } = req.body;
+    // Обработчик для покупки валют
+    app.post('/admin/currency/purchase', requireAdmin, async function (req, res) {
+        const { currency_from, rate } = req.body;
+        // Валидация данных
+        const schema = Joi.object({
+            currency_from: Joi.string().length(3).uppercase().required(),
+            rate: Joi.number().positive().precision(4).required()
+        });
+        const { error, value } = schema.validate({ currency_from, rate });
+        if (error) {
+            return res.status(400).send(`Ошибка валидации: ${error.details[0].message}`);
+        }
+
         try {
-            const [existingCurrency] = await pool.query(
-                'SELECT * FROM currency_in WHERE currency_from = ? AND currency_to = ?',
-                [currency_from, currency_to]
+            const [currencyInResults] = await pool.query(
+                'SELECT * FROM currency_in_byn WHERE currency_in = ?',
+                [currency_from]
             );
-            if (existingCurrency.length > 0) {
+
+            if (currencyInResults.length > 0) {
                 await pool.query(
-                'UPDATE currency_in SET rate = ? WHERE currency_from = ? AND currency_to = ?',
-                [rate, currency_from, currency_to]
+                    'UPDATE currency_in_byn SET rate = ? WHERE currency_in = ?',
+                    [rate, currency_from]
                 );
             } else {
                 await pool.query(
-                'INSERT INTO currency_in (currency_from, currency_to, rate) VALUES (?, ?, ?)',
-                [currency_from, currency_to, rate]
+                    'INSERT INTO currency_in_byn (currency_in, rate) VALUES (?, ?)',
+                    [currency_from, rate]
                 );
             }
-            res.redirect('/admin/currency'); 
+
+            res.redirect('/admin/currency');
         } catch (error) {
-            console.error('Error adding/updating currency:', error);
-            res.status(500).send('Failed to add/update currency');
+            console.error('Ошибка при добавлении/обновлении покупки валют:', error);
+            res.status(500).send('Не удалось добавить/обновить валюту для покупки');
+        }
+    });
+
+    // Обработчик для продажи валют
+    app.post('/admin/currency/sale', requireAdmin, async function (req, res) {
+        const { currency_to, rate } = req.body;
+        // Валидация данных
+        const schema = Joi.object({
+            currency_to: Joi.string().length(3).uppercase().required(),
+            rate: Joi.number().positive().precision(4).required()
+        });
+        const { error, value } = schema.validate({ currency_to, rate });
+        if (error) {
+            return res.status(400).send(`Ошибка валидации: ${error.details[0].message}`);
+        }
+
+        try {
+            const [currencyToResults] = await pool.query(
+                'SELECT * FROM currency_from_byn WHERE currency_from = ?',
+                [currency_to]
+            );
+
+            if (currencyToResults.length > 0) {
+                await pool.query(
+                    'UPDATE currency_from_byn SET rate = ? WHERE currency_from = ?',
+                    [rate, currency_to]
+                );
+            } else {
+                await pool.query(
+                    'INSERT INTO currency_from_byn (currency_from, rate) VALUES (?, ?)',
+                    [currency_to, rate]
+                );
+            }
+
+            res.redirect('/admin/currency');
+        } catch (error) {
+            console.error('Ошибка при добавлении/обновлении продажи валют:', error);
+            res.status(500).send('Не удалось добавить/обновить валюту для продажи');
         }
     });
 }

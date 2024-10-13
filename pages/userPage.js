@@ -36,8 +36,20 @@ module.exports = function (app, requireLogin, pool, baseHTML) {
     }
 
     app.post('/user/exchange', requireLogin, async function (req, res) {
-        const { fromCurrency, toCurrency, amount } = req.body;
+        const { fromCurrency, inCurrency, amount } = req.body;
         try {
+
+            const [fromCurrencyData] = await pool.query('SELECT * FROM currency_from_byn WHERE id = ?', [fromCurrency]);
+            const [inCurrencyData] = await pool.query('SELECT * FROM currency_in_byn WHERE id = ?', [inCurrency]);
+
+            const fromCurrencyRate = parseFloat(fromCurrencyData[0].rate);
+            const inCurrencyRate = parseFloat(inCurrencyData[0].rate);
+
+            const fromCurrencyName = fromCurrencyData[0].currency_from;
+            const inCurrencyName = inCurrencyData[0].currency_in;
+
+
+
             await pool.query('START TRANSACTION');
             const currentMax = await getMaxAmount(pool);
             if (parseFloat(amount) <= 0) {
@@ -48,28 +60,15 @@ module.exports = function (app, requireLogin, pool, baseHTML) {
                 await pool.query('ROLLBACK');
                 return res.status(400).send(`Сумма обмена не может превышать ${currentMax.toFixed(2)} BYN`);
             }
-            if (fromCurrency === toCurrency) {
+            if (fromCurrencyName === inCurrencyName) {
                 await pool.query('ROLLBACK');
                 return res.status(400).send('Исходная и целевая валюты не могут быть одинаковыми.');
             }
 
-            const [fromCurrencyData] = await pool.query('SELECT * FROM currency_in WHERE id = ?', [fromCurrency]);
-            const [toCurrencyData] = await pool.query('SELECT * FROM currency_to WHERE id = ?', [toCurrency]);
-
-            if (fromCurrencyData.length === 0 || toCurrencyData.length === 0) {
+            if (fromCurrencyData.length === 0 || inCurrencyData.length === 0) {
                 await pool.query('ROLLBACK');
                 return res.status(404).send('Валюта не найдена');
             }
-
-            const fromCurrencyRate = parseFloat(fromCurrencyData[0].rate);
-            const toCurrencyRate = parseFloat(toCurrencyData[0].rate);
-
-            const fromCurrencyName = fromCurrencyData[0].currency_from;
-            const toCurrencyName = toCurrencyData[0].currency_to;
-
-
-
-            console.log(fromCurrencyName);
 
             const amountInBYN = parseFloat(amount) * fromCurrencyRate;
 
@@ -77,17 +76,17 @@ module.exports = function (app, requireLogin, pool, baseHTML) {
                 await pool.query('ROLLBACK');
                 return res.status(400).send(`Обмен невозможен. Требуемая сумма в BYN (${amountInBYN.toFixed(2)}) превышает доступные средства (${currentMax.toFixed(2)} BYN).`);
             }
-            let sumInTargetCurrency=0
+            let sumInTargetCurrency = 0
             if (fromCurrencyName === 'BYN') {
-                 sumInTargetCurrency = parseFloat(amount) * fromCurrencyRate;
-            } else {
-                 sumInTargetCurrency = amountInBYN * toCurrencyRate;
+                sumInTargetCurrency = parseFloat(amount) / inCurrencyRate;
+            }
+            if (inCurrencyName === 'BYN') {
+                sumInTargetCurrency = parseFloat(amount) / fromCurrencyRate;
             }
 
-
-
-
-
+            else {
+                sumInTargetCurrency = amountInBYN / inCurrencyRate;
+            }
 
 
 
@@ -96,11 +95,11 @@ module.exports = function (app, requireLogin, pool, baseHTML) {
 
             const currentDate = new Date();
             await pool.query(
-                'INSERT INTO history (fromCurrencyName, toCurrencyName, date, rate, purchased_currency, selling_currency, user) VALUES (?, ?, ?, ?, ?, ?, ?)', [
+                'INSERT INTO history (amount, fromCurrencyName, inCurrencyName, date, inCurrencySum, fromCurrencySum, user) VALUES (?, ?, ?, ?, ?, ?, ?)', [
+                amount,
                 fromCurrencyName,
-                toCurrencyName,
+                inCurrencyName,
                 currentDate,
-                toCurrencyRate,
                 sumInTargetCurrency,
                 fromCurrency,
                 req.session.userId
@@ -109,9 +108,9 @@ module.exports = function (app, requireLogin, pool, baseHTML) {
 
 
             saveActionInSession(req, `
-                Получено ${sumInTargetCurrency.toFixed(2)}  ${toCurrencyName}
+                Получено ${fromCurrency}  ${fromCurrencyName}
                 <br>
-                Продано ${amount} ${fromCurrencyName}
+                Продано ${amount} ${inCurrencyName}
                 <br>
                 Дата: ${currentDate.toLocaleString()}
             `);
@@ -121,7 +120,7 @@ module.exports = function (app, requireLogin, pool, baseHTML) {
                 <br>
                 Обмен произведен и сохранен в историю! 
                 <br>
-                Получено ${sumInTargetCurrency.toFixed(2)} ${toCurrencyName}
+                Получено ${sumInTargetCurrency.toFixed(2)} ${inCurrencyName}
                 <br>
                 Продано ${amount} ${fromCurrencyName}
                 <br>
@@ -141,52 +140,66 @@ module.exports = function (app, requireLogin, pool, baseHTML) {
 
     app.get('/user/exchange', requireLogin, async function (req, res) {
         try {
-            const [currencies_in] = await pool.query('SELECT * FROM currency_in');
-            const [currencies_to] = await pool.query('SELECT * FROM currency_to');
+            const [currencies_in] = await pool.query('SELECT * FROM currency_in_byn');
+            const [currencies_from] = await pool.query('SELECT * FROM currency_from_byn');
             const currentMax = await getMaxAmount(pool);
 
             let currencyTableIn = '';
             currencies_in.forEach(currency => {
                 currencyTableIn += `
                 <tr>
-                    <td>${currency.currency_from}</td>
-                    <td>${currency.currency_to}</td>
+                    <td>${currency.currency_in}</td>
+                    
                     <td>${currency.rate}</td>
                 </tr>`;
             });
 
-            let currencyTableTo = '';
-            currencies_to.forEach(currency => {
-                currencyTableTo += `
+            let currencyTableFrom = '';
+            currencies_from.forEach(currency => {
+                currencyTableFrom += `
                 <tr>
+                    
                     <td>${currency.currency_from}</td>
-                    <td>${currency.currency_to}</td>
                     <td>${currency.rate}</td>
                 </tr>`;
+            });
+
+            let currencyOptionsIn = '';
+            currencies_in.forEach(currency => {
+                currencyOptionsIn += `<option value="${currency.id}">${currency.currency_in}</option>`;
             });
 
             let currencyOptionsFrom = '';
-            currencies_in.forEach(currency => {
+            currencies_from.forEach(currency => {
                 currencyOptionsFrom += `<option value="${currency.id}">${currency.currency_from}</option>`;
-            });
-
-            let currencyOptionsTo = '';
-            currencies_to.forEach(currency => {
-                currencyOptionsTo += `<option value="${currency.id}">${currency.currency_to}</option>`;
             });
 
             const content = `
                 <h2>Доступное количество денег в обменнике: ${currentMax.toFixed(2)} BYN</h2>
                 <h2>Валюты из базы данных</h2>
                 <table>
+                <h2>Покупка</h2>
                     <tr>
-                        <th>В</th>
-                        <th>Из</th>
-                        <th>Курс</th>
+                        <th>валюта</th>
+                        <th>курс</th>
                     </tr>
                     ${currencyTableIn}
-                    ${currencyTableTo}
+
                 </table>
+
+
+                <table>
+                <h2>Продажа</h2>
+                    <tr>
+                        <th>валюта</th>
+                        <th>курс</th>
+                    </tr>
+                    ${currencyTableFrom}
+
+                </table>
+
+
+                
 
 
                 <h1>Доступные валюты для обмена:</h1>
@@ -196,9 +209,9 @@ module.exports = function (app, requireLogin, pool, baseHTML) {
                         ${currencyOptionsFrom}
                     </select>
                 <input type="number" name="amount" min="1" step="0.01" placeholder="Сумма" required>
-                <label for="toCurrency">В:</label>
-                    <select name="toCurrency" id="toCurrency" required>
-                        ${currencyOptionsTo}
+                <label for="inCurrency">В:</label>
+                    <select name="inCurrency" id="inCurrency" required>
+                        ${currencyOptionsIn}
                     </select>                   
                 <button type="submit">Обмен</button>
                 </form>
