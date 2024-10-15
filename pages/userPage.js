@@ -26,117 +26,89 @@ module.exports = function (app, requireLogin, pool, baseHTML) {
         }
     }
 
-    async function updateMaxAmount(pool, newAmount) {
-        try {
-            await pool.query('UPDATE exchange_settings SET max_amount = ? WHERE id = 1', [newAmount]);
-        } catch (error) {
-            console.error('Ошибка при обновлении MAX_AMOUNT в базе данных:', error);
-            throw error;
-        }
-    }
+
 
     app.post('/user/exchange', requireLogin, async function (req, res) {
         const { fromCurrency, inCurrency, amount } = req.body;
         try {
-
             const [fromCurrencyData] = await pool.query('SELECT * FROM currency_from_byn WHERE id = ?', [fromCurrency]);
             const [inCurrencyData] = await pool.query('SELECT * FROM currency_in_byn WHERE id = ?', [inCurrency]);
-
-            const fromCurrencyRate = parseFloat(fromCurrencyData[0].rate);
-            const inCurrencyRate = parseFloat(inCurrencyData[0].rate);
-
-            const fromCurrencyName = fromCurrencyData[0].currency_from;
-            const inCurrencyName = inCurrencyData[0].currency_in;
-
-
-
-            await pool.query('START TRANSACTION');
-            const currentMax = await getMaxAmount(pool);
-            if (parseFloat(amount) <= 0) {
-                await pool.query('ROLLBACK');
-                return res.status(400).send('Сумма обмена должна быть положительной.');
-            }
-            if (amount > currentMax) {
-                await pool.query('ROLLBACK');
-                return res.status(400).send(`Сумма обмена не может превышать ${currentMax.toFixed(2)} BYN`);
-            }
-            if (fromCurrencyName === inCurrencyName) {
-                await pool.query('ROLLBACK');
-                return res.status(400).send('Исходная и целевая валюты не могут быть одинаковыми.');
-            }
-
+    
             if (fromCurrencyData.length === 0 || inCurrencyData.length === 0) {
-                await pool.query('ROLLBACK');
                 return res.status(404).send('Валюта не найдена');
             }
-
+    
+            const fromCurrencyRate = parseFloat(fromCurrencyData[0].rate);
+            const inCurrencyRate = parseFloat(inCurrencyData[0].rate);
+    
+            const fromCurrencyName = fromCurrencyData[0].currency_from;
+            const inCurrencyName = inCurrencyData[0].currency_in;
+    
+            if (parseFloat(amount) <= 0) {
+                return res.status(400).send('Сумма обмена должна быть положительной.');
+            }
+    
+            if (fromCurrencyName === inCurrencyName) {
+                return res.status(400).send('Исходная и целевая валюты не могут быть одинаковыми.');
+            }
+    
             const amountInBYN = parseFloat(amount) * fromCurrencyRate;
-
+    
+            // Проверка текущего max_amount
+            const currentMax = await getMaxAmount(pool);
             if (amountInBYN > currentMax) {
-                await pool.query('ROLLBACK');
                 return res.status(400).send(`Обмен невозможен. Требуемая сумма в BYN (${amountInBYN.toFixed(2)}) превышает доступные средства (${currentMax.toFixed(2)} BYN).`);
             }
-            let sumInTargetCurrency = 0
+    
+            let sumInTargetCurrency = 0;
             if (fromCurrencyName === 'BYN') {
                 sumInTargetCurrency = parseFloat(amount) / inCurrencyRate;
-            }
-            if (inCurrencyName === 'BYN') {
-                sumInTargetCurrency = parseFloat(amount) / fromCurrencyRate;
-            }
-
-            else {
+            } else if (inCurrencyName === 'BYN') {
+                sumInTargetCurrency = parseFloat(amount) * fromCurrencyRate;
+            } else {
                 sumInTargetCurrency = amountInBYN / inCurrencyRate;
             }
-
-
-
-            const newMax = currentMax - amountInBYN;
-            await updateMaxAmount(pool, newMax);
-
+    
             const currentDate = new Date();
+    
             await pool.query(
                 'INSERT INTO history (amount, fromCurrencyName, inCurrencyName, date, inCurrencySum, fromCurrencySum, user) VALUES (?, ?, ?, ?, ?, ?, ?)', [
-                amount,
-                fromCurrencyName,
-                inCurrencyName,
-                currentDate,
-                sumInTargetCurrency,
-                fromCurrency,
-                req.session.userId
-            ]
+                    amount,
+                    fromCurrencyName,
+                    inCurrencyName,
+                    currentDate,
+                    sumInTargetCurrency,
+                    fromCurrency,
+                    req.session.userId
+                ]
             );
-
-
+    
             saveActionInSession(req, `
-                Получено ${fromCurrency}  ${fromCurrencyName}
+                Получено ${sumInTargetCurrency.toFixed(2)}  ${inCurrencyName}
                 <br>
-                Продано ${amount} ${inCurrencyName}
+                Продано ${amount} ${fromCurrencyName}
                 <br>
                 Дата: ${currentDate.toLocaleString()}
             `);
-
-            await pool.query('COMMIT');
+    
             const content = `
                 <br>
                 Обмен произведен и сохранен в историю! 
                 <br>
-                Получено ${sumInTargetCurrency.toFixed(2)} ${inCurrencyName}
+                Получено ${sumInTargetCurrency.toFixed(2)}  ${inCurrencyName}
                 <br>
-                Продано ${amount} ${fromCurrencyName}
+                Продано ${amount} ${fromCurrencyName} 
                 <br>
                 <button onclick="location.href='/user/exchange'">Вернуться на страницу обмена валют</button>
             `;
             res.send(baseHTML('Обмен произведен и сохранен в историю!', content));
         } catch (error) {
-            try {
-                await pool.query('ROLLBACK');
-            } catch (rollbackError) {
-                console.error('Ошибка при откате транзакции:', rollbackError);
-            }
             console.error('Ошибка при обработке обмена:', error);
             res.status(500).send('Не удалось обработать обмен.');
         }
     });
+    
+    
 
     app.get('/user/exchange', requireLogin, async function (req, res) {
         try {
@@ -184,9 +156,7 @@ module.exports = function (app, requireLogin, pool, baseHTML) {
                         <th>курс</th>
                     </tr>
                     ${currencyTableIn}
-
                 </table>
-
 
                 <table>
                 <h2>Продажа</h2>
@@ -195,11 +165,7 @@ module.exports = function (app, requireLogin, pool, baseHTML) {
                         <th>курс</th>
                     </tr>
                     ${currencyTableFrom}
-
-                </table>
-
-
-                
+                </table>             
 
 
                 <h1>Доступные валюты для обмена:</h1>
