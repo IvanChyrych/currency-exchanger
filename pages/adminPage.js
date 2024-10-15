@@ -10,7 +10,7 @@ module.exports = function (app, pool, requireAdmin, baseHTML) {
             if (rows.length > 0) {
                 return parseFloat(rows[0].max_amount);
             } else {
-                await pool.query('INSERT INTO exchange_settings (max_amount) VALUES (?)', [10000]);
+                await pool.query('INSERT INTO exchange_settings (id, max_amount) VALUES (1, ?)', [10000]);
                 return 10000;
             }
         } catch (error) {
@@ -68,6 +68,14 @@ module.exports = function (app, pool, requireAdmin, baseHTML) {
             <button onclick="location.href='/admin/exchange-history'" class="history-button">История операций</button>
             <br>
             <h2>Доступное количество денег в обменнике: ${currentMax.toFixed(2)} BYN</h2>
+            
+            <!-- Новая форма для изменения currentMax -->
+            <form action="/admin/currency/max" method="POST">
+                <label for="max_amount">Изменить доступное количество денег (BYN):</label>
+                <input type="number" step="0.01" id="max_amount" name="max_amount" min="0" required>
+                <button type="submit" class="history-button">Обновить</button>
+            </form>
+
             <h1>Админ панель</h1>
             
 
@@ -140,18 +148,18 @@ module.exports = function (app, pool, requireAdmin, baseHTML) {
         try {
             const [currencyInResults] = await pool.query(
                 'SELECT * FROM currency_in_byn WHERE currency_in = ?',
-                [currency_from]
+                [value.currency_from]
             );
 
             if (currencyInResults.length > 0) {
                 await pool.query(
                     'UPDATE currency_in_byn SET rate = ? WHERE currency_in = ?',
-                    [rate, currency_from]
+                    [value.rate, value.currency_from]
                 );
             } else {
                 await pool.query(
                     'INSERT INTO currency_in_byn (currency_in, rate) VALUES (?, ?)',
-                    [currency_from, rate]
+                    [value.currency_from, value.rate]
                 );
             }
 
@@ -178,18 +186,18 @@ module.exports = function (app, pool, requireAdmin, baseHTML) {
         try {
             const [currencyToResults] = await pool.query(
                 'SELECT * FROM currency_from_byn WHERE currency_from = ?',
-                [currency_to]
+                [value.currency_to]
             );
 
             if (currencyToResults.length > 0) {
                 await pool.query(
                     'UPDATE currency_from_byn SET rate = ? WHERE currency_from = ?',
-                    [rate, currency_to]
+                    [value.rate, value.currency_to]
                 );
             } else {
                 await pool.query(
                     'INSERT INTO currency_from_byn (currency_from, rate) VALUES (?, ?)',
-                    [currency_to, rate]
+                    [value.currency_to, value.rate]
                 );
             }
 
@@ -197,6 +205,37 @@ module.exports = function (app, pool, requireAdmin, baseHTML) {
         } catch (error) {
             console.error('Ошибка при добавлении/обновлении продажи валют:', error);
             res.status(500).send('Не удалось добавить/обновить валюту для продажи');
+        }
+    });
+
+    // **Новый обработчик для изменения currentMax**
+    app.post('/admin/currency/max', requireAdmin, async function (req, res) {
+        const { max_amount } = req.body;
+        
+        // Валидация данных с использованием Joi
+        const schema = Joi.object({
+            max_amount: Joi.number().positive().precision(2).required()
+        });
+        const { error, value } = schema.validate({ max_amount });
+        if (error) {
+            return res.status(400).send(`Ошибка валидации: ${error.details[0].message}`);
+        }
+        
+        try {
+            // Проверяем, существует ли запись с id = 1
+            const [rows] = await pool.query('SELECT * FROM exchange_settings WHERE id = 1');
+            if (rows.length > 0) {
+                // Обновляем существующую запись
+                await pool.query('UPDATE exchange_settings SET max_amount = ? WHERE id = 1', [value.max_amount]);
+            } else {
+                // Вставляем новую запись, если ее нет
+                await pool.query('INSERT INTO exchange_settings (id, max_amount) VALUES (1, ?)', [value.max_amount]);
+            }
+            
+            res.redirect('/admin/currency');
+        } catch (error) {
+            console.error('Ошибка при обновлении max_amount:', error);
+            res.status(500).send('Не удалось обновить доступное количество денег');
         }
     });
 }
